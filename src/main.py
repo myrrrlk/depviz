@@ -3,7 +3,7 @@
 import argparse
 import sys
 
-from src import maven, repo_file
+from src import maven, repo_file, visualize
 from src.config import MODE_TEST, ConfigError, load_config
 from src.graph import build_graph
 from src.order import load_order
@@ -27,6 +27,10 @@ def parse_arguments(argv=None):
     parser.add_argument(
         "--load-order", action="store_true",
         help="print the order in which dependencies are loaded",
+    )
+    parser.add_argument(
+        "--no-image", action="store_true",
+        help="print the Mermaid diagram but do not create the PNG image",
     )
     return parser.parse_args(argv)
 
@@ -84,8 +88,30 @@ def print_load_order(graph, source):
             print(f"  {' -> '.join(cycle)}")
 
 
+def show_visualization(graph, source, config, create_image):
+    """Выводит граф на языке Mermaid, сохраняет его в .mmd и в PNG.
+
+    Возвращает код завершения программы.
+    """
+    text = visualize.to_mermaid(graph, source)
+    print("Mermaid diagram:")
+    print(text, end="")
+    text_path = visualize.mermaid_path(config.output_image)
+    visualize.save_text(text, text_path)
+    print(f"Mermaid diagram saved to {text_path}")
+    if not create_image:
+        return EXIT_SUCCESS
+    try:
+        method = visualize.render_png(text, config.output_image)
+    except visualize.RenderError as error:
+        print(f"Error: {error}")
+        return EXIT_FAILURE
+    print(f"Image saved to {config.output_image} (rendered by {method})")
+    return EXIT_SUCCESS
+
+
 def main(argv=None):
-    """Точка входа: строит граф и выводит его или порядок загрузки.
+    """Точка входа: строит граф, выводит его и сохраняет изображение.
 
     Возвращает код завершения программы.
     """
@@ -108,10 +134,11 @@ def main(argv=None):
 
     if args.load_order:
         print_load_order(graph, source)
-    else:
-        print_edges(graph, source)
-        print_details(graph, config.filter_substring)
-    return EXIT_SUCCESS
+        return EXIT_SUCCESS
+    print_edges(graph, source)
+    print_details(graph, config.filter_substring)
+    print()
+    return show_visualization(graph, source, config, not args.no_image)
 
 
 if __name__ == "__main__":

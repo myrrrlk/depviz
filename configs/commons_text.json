@@ -3,6 +3,6 @@
   "repository": "https://repo1.maven.org/maven2",
   "repository_mode": "remote",
   "version": "1.12.0",
-  "output_image": "graph.png",
+  "output_image": "graph_commons_text.png",
   "filter_substring": ""
 }

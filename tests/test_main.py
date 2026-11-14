@@ -7,7 +7,9 @@ import tempfile
 import unittest
 import urllib.request
 from contextlib import redirect_stdout
+from unittest import mock
 
+from src import visualize
 from src.main import EXIT_FAILURE, EXIT_SUCCESS, main, parse_arguments
 
 
@@ -30,6 +32,30 @@ def run_main(argv):
     return code, output.getvalue()
 
 
+class GraphTestCase(unittest.TestCase):
+    """Запускает программу так, чтобы файлы писались во временную папку."""
+
+    def setUp(self):
+        """Создаёт временную папку для файлов .mmd и .png."""
+        self.folder = tempfile.mkdtemp()
+
+    def tearDown(self):
+        """Удаляет временную папку."""
+        for name in os.listdir(self.folder):
+            os.remove(os.path.join(self.folder, name))
+        os.rmdir(self.folder)
+
+    def run_config(self, config_path, *flags):
+        """Запускает main с копией конфига, где картинка во temp-папке."""
+        with open(config_path, encoding="utf-8") as config_file:
+            config = json.load(config_file)
+        config["output_image"] = os.path.join(self.folder, "graph.png")
+        path = os.path.join(self.folder, "config.json")
+        with open(path, "w", encoding="utf-8") as config_file:
+            json.dump(config, config_file)
+        return run_main(["-c", path, "--no-image", *flags])
+
+
 class TestArguments(unittest.TestCase):
     """Проверяет разбор параметров командной строки."""
 
@@ -47,13 +73,18 @@ class TestArguments(unittest.TestCase):
         self.assertFalse(parse_arguments([]).load_order)
         self.assertTrue(parse_arguments(["--load-order"]).load_order)
 
+    def test_no_image_flag(self):
+        """Проверяет флаг --no-image."""
+        self.assertFalse(parse_arguments([]).no_image)
+        self.assertTrue(parse_arguments(["--no-image"]).no_image)
 
-class TestMain(unittest.TestCase):
-    """Проверяет вывод зависимостей и коды завершения."""
+
+class TestMain(GraphTestCase):
+    """Проверяет вывод графа, визуализацию и коды завершения."""
 
     def test_graph_output(self):
         """Проверяет вывод графа в тестовом режиме."""
-        code, output = run_main(["-c", "configs/test_basic.json"])
+        code, output = self.run_config("configs/test_basic.json")
         self.assertEqual(code, EXIT_SUCCESS)
         self.assertIn("Dependency graph of A:", output)
         self.assertIn("  A -> B, C", output)
@@ -62,20 +93,50 @@ class TestMain(unittest.TestCase):
 
     def test_filter_output(self):
         """Проверяет вывод пропущенных фильтром пакетов."""
-        code, output = run_main(["-c", "configs/test_mode.json"])
+        code, output = self.run_config("configs/test_mode.json")
         self.assertEqual(code, EXIT_SUCCESS)
         self.assertIn("Skipped by filter 'D': D", output)
 
     def test_cycle_output(self):
         """Проверяет вывод циклических зависимостей."""
-        code, output = run_main(["-c", "configs/test_cycle.json"])
+        code, output = self.run_config("configs/test_cycle.json")
         self.assertEqual(code, EXIT_SUCCESS)
         self.assertIn("  A -> B -> C -> A", output)
 
+    def test_mermaid_output(self):
+        """Проверяет вывод Mermaid и сохранение файла .mmd."""
+        code, output = self.run_config("configs/test_basic.json")
+        self.assertEqual(code, EXIT_SUCCESS)
+        self.assertIn("Mermaid diagram:", output)
+        self.assertIn("graph TD", output)
+        self.assertTrue(os.path.isfile(os.path.join(self.folder,
+                                                    "graph.mmd")))
+
+    def test_image_is_rendered(self):
+        """Проверяет вызов построения PNG без флага --no-image."""
+        config = os.path.join(self.folder, "config.json")
+        self.run_config("configs/test_basic.json")
+        with mock.patch.object(visualize, "render_png",
+                               return_value="test renderer") as render:
+            code, output = run_main(["-c", config])
+        self.assertEqual(code, EXIT_SUCCESS)
+        render.assert_called_once()
+        self.assertIn("(rendered by test renderer)", output)
+
+    def test_image_error(self):
+        """Проверяет код завершения, если PNG получить не удалось."""
+        config = os.path.join(self.folder, "config.json")
+        self.run_config("configs/test_basic.json")
+        error = visualize.RenderError("no way to render")
+        with mock.patch.object(visualize, "render_png", side_effect=error):
+            code, output = run_main(["-c", config])
+        self.assertEqual(code, EXIT_FAILURE)
+        self.assertIn("Error: no way to render", output)
+
     def test_load_order(self):
         """Проверяет режим вывода порядка загрузки."""
-        code, output = run_main(["-c", "configs/test_basic.json",
-                                 "--load-order"])
+        code, output = self.run_config("configs/test_basic.json",
+                                       "--load-order")
         self.assertEqual(code, EXIT_SUCCESS)
         self.assertIn("Load order of A:", output)
         self.assertIn("  1. D", output)
@@ -83,8 +144,8 @@ class TestMain(unittest.TestCase):
 
     def test_load_order_with_cycle(self):
         """Проверяет предупреждение о цикле в порядке загрузки."""
-        code, output = run_main(["-c", "configs/test_cycle.json",
-                                 "--load-order"])
+        code, output = self.run_config("configs/test_cycle.json",
+                                       "--load-order")
         self.assertEqual(code, EXIT_SUCCESS)
         self.assertIn("Warning: the graph has cyclic dependencies", output)
 
