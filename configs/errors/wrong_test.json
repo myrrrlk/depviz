@@ -1,0 +1,8 @@
+{
+  "package_name": "a",
+  "repository": "repos/missing.txt",
+  "repository_mode": "test",
+  "version": "",
+  "output_image": "images/graph.png",
+  "filter_substring": null
+}

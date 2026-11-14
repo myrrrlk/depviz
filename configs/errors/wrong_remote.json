@@ -1,0 +1,8 @@
+{
+  "package_name": "spring-core",
+  "repository": "ftp://repo1.maven.org/maven2",
+  "repository_mode": "remote",
+  "version": "6.1.5 final",
+  "output_image": "graph.jpg",
+  "filter_substring": 42
+}
