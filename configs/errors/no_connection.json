@@ -1,0 +1,8 @@
+{
+  "package_name": "org.springframework:spring-core",
+  "repository": "https://no-such-repository.invalid/maven2",
+  "repository_mode": "remote",
+  "version": "6.1.5",
+  "output_image": "graph.png",
+  "filter_substring": ""
+}

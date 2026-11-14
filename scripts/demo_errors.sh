@@ -30,3 +30,18 @@ echo
 echo "=== Wrong parameters in test mode ==="
 python3 -m src.main --config configs/errors/wrong_test.json
 echo "Exit code: $?"
+
+echo
+echo "=== Package version not found in repository ==="
+python3 -m src.main --config configs/errors/version_not_found.json
+echo "Exit code: $?"
+
+echo
+echo "=== Repository is not available ==="
+python3 -m src.main --config configs/errors/no_connection.json
+echo "Exit code: $?"
+
+echo
+echo "=== Package not found in test repository ==="
+python3 -m src.main --config configs/errors/unknown_test_package.json
+echo "Exit code: $?"

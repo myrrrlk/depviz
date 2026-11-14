@@ -1,0 +1,8 @@
+{
+  "package_name": "com.google.guava:guava",
+  "repository": "https://repo1.maven.org/maven2",
+  "repository_mode": "remote",
+  "version": "33.0.0-jre",
+  "output_image": "graph.png",
+  "filter_substring": ""
+}
