@@ -1,0 +1,8 @@
+# Acyclic graph with several levels and shared dependencies.
+A: B C D
+B: E
+C: E F
+D: F
+E: G
+F: G
+G:

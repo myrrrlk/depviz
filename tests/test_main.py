@@ -42,9 +42,14 @@ class TestArguments(unittest.TestCase):
         args = parse_arguments(["--config", "my.json"])
         self.assertEqual(args.config, "my.json")
 
+    def test_load_order_flag(self):
+        """Проверяет флаг --load-order."""
+        self.assertFalse(parse_arguments([]).load_order)
+        self.assertTrue(parse_arguments(["--load-order"]).load_order)
+
 
 class TestMain(unittest.TestCase):
-    """Проверяет вывод графа и коды завершения."""
+    """Проверяет вывод зависимостей и коды завершения."""
 
     def test_graph_output(self):
         """Проверяет вывод графа в тестовом режиме."""
@@ -66,6 +71,22 @@ class TestMain(unittest.TestCase):
         code, output = run_main(["-c", "configs/test_cycle.json"])
         self.assertEqual(code, EXIT_SUCCESS)
         self.assertIn("  A -> B -> C -> A", output)
+
+    def test_load_order(self):
+        """Проверяет режим вывода порядка загрузки."""
+        code, output = run_main(["-c", "configs/test_basic.json",
+                                 "--load-order"])
+        self.assertEqual(code, EXIT_SUCCESS)
+        self.assertIn("Load order of A:", output)
+        self.assertIn("  1. D", output)
+        self.assertIn("  4. A", output)
+
+    def test_load_order_with_cycle(self):
+        """Проверяет предупреждение о цикле в порядке загрузки."""
+        code, output = run_main(["-c", "configs/test_cycle.json",
+                                 "--load-order"])
+        self.assertEqual(code, EXIT_SUCCESS)
+        self.assertIn("Warning: the graph has cyclic dependencies", output)
 
     def test_unknown_root(self):
         """Проверяет пакет, которого нет в тестовом репозитории."""

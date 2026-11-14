@@ -6,6 +6,7 @@ import sys
 from src import maven, repo_file
 from src.config import MODE_TEST, ConfigError, load_config
 from src.graph import build_graph
+from src.order import load_order
 
 
 DEFAULT_CONFIG = "config.json"
@@ -22,6 +23,10 @@ def parse_arguments(argv=None):
     parser.add_argument(
         "-c", "--config", default=DEFAULT_CONFIG, metavar="PATH",
         help=f"path to the JSON config file (default: {DEFAULT_CONFIG})",
+    )
+    parser.add_argument(
+        "--load-order", action="store_true",
+        help="print the order in which dependencies are loaded",
     )
     return parser.parse_args(argv)
 
@@ -66,8 +71,21 @@ def print_details(graph, filter_substring):
           f"dependencies: {graph.edge_count()}")
 
 
+def print_load_order(graph, source):
+    """Выводит порядок загрузки: каждый пакет после его зависимостей."""
+    print(f"Load order of {source.label(graph.root)}:")
+    for number, name in enumerate(load_order(graph), start=1):
+        print(f"  {number}. {source.label(name)}")
+    if graph.cycles:
+        print("Warning: the graph has cyclic dependencies, so a strict "
+              "order does not exist.")
+        print("The edge that closes each cycle is ignored:")
+        for cycle in graph.cycles:
+            print(f"  {' -> '.join(cycle)}")
+
+
 def main(argv=None):
-    """Точка входа: загружает конфигурацию и строит граф зависимостей.
+    """Точка входа: строит граф и выводит его или порядок загрузки.
 
     Возвращает код завершения программы.
     """
@@ -88,8 +106,11 @@ def main(argv=None):
         print(f"Error: {graph.errors[config.package_name]}")
         return EXIT_FAILURE
 
-    print_edges(graph, source)
-    print_details(graph, config.filter_substring)
+    if args.load_order:
+        print_load_order(graph, source)
+    else:
+        print_edges(graph, source)
+        print_details(graph, config.filter_substring)
     return EXIT_SUCCESS
 
 
