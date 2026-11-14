@@ -9,7 +9,7 @@
 виде картинки. Готовые менеджеры пакетов и библиотеки для получения
 зависимостей не используются, всё делается вручную.
 
-Сделано два этапа:
+Сделано три этапа:
 
 - этап 1: консольное приложение читает настройки из конфигурационного
   файла JSON и проверяет их. Если в настройках есть ошибки, программа
@@ -18,7 +18,12 @@
 - этап 2: программа скачивает POM-файл пакета нужной версии из
   репозитория Maven, сама разбирает его и выводит прямые зависимости
   пакета. Менеджеры пакетов и сторонние библиотеки не используются,
-  только стандартная библиотека Python (`urllib` и `xml.etree`).
+  только стандартная библиотека Python (`urllib` и `xml.etree`). На этом
+  этапе программа выводила список прямых зависимостей;
+- этап 3: программа строит полный граф зависимостей (зависимости
+  зависимостей и т.д.) обходом в глубину (DFS) без рекурсии, пропускает
+  пакеты с заданной подстрокой в имени, находит циклические зависимости
+  и умеет работать с тестовым репозиторием.
 
 Для работы нужен Python 3.8 или новее. Сторонние библиотеки не нужны.
 
@@ -29,6 +34,7 @@ src/main.py        точка входа, вывод зависимостей
 src/config.py      чтение и проверка конфигурационного файла
 src/maven.py       скачивание и разбор POM-файлов Maven
 src/repo_file.py   тестовый репозиторий в текстовом файле
+src/graph.py       построение графа (DFS без рекурсии)
 tests/             тесты
 tests/data/maven/  POM-файлы для тестов (маленький репозиторий Maven)
 config.json        конфигурация по умолчанию
@@ -113,6 +119,56 @@ https://repo1.maven.org/maven2/org/springframework/spring-core/6.1.5/spring-core
 scope (`compile`, `runtime`, `test`, `provided`), а для необязательных
 зависимостей ещё `optional`.
 
+## Построение графа
+
+Граф строится обходом в глубину (DFS). Рекурсия не используется: вместо
+нее есть свой стек - список пар (пакет, его еще не просмотренные
+зависимости). Алгоритм:
+
+1. Положить в стек корневой пакет и пометить его "в работе".
+2. Взять верхний пакет стека и его следующую зависимость.
+3. Если зависимостей больше нет - пометить пакет "готов" и убрать его
+   из стека.
+4. Если зависимость помечена "в работе", значит она сейчас есть в стеке,
+   то есть найден цикл. Путь цикла берется из стека.
+5. Если зависимость уже встречалась ("готов") - ничего не делать, второй
+   раз ее не обходить (например, в "ромбе" A -> B -> D, A -> C -> D
+   пакет D обходится один раз).
+6. Иначе - загрузить зависимости нового пакета, пометить его "в работе"
+   и положить в стек. Перейти к шагу 2.
+
+Благодаря пометкам циклы не приводят к бесконечному обходу, а сами
+циклы выводятся на экран. Ребро, которое замыкает цикл, в графе
+остается.
+
+Пакеты, в имени которых есть `filter_substring`, в граф не попадают, и
+их зависимости не обходятся. Корневой пакет не фильтруется.
+
+Для Maven дальше по графу идут только зависимости со scope `compile` или
+`runtime` и без `optional` - так же решает и сам Maven: зависимости
+`test`, `provided` и необязательные не попадают к тем, кто использует
+пакет. Если версия одного пакета встречается разная, берется та, которая
+встретилась первой при обходе. Если POM какого-то пакета не удалось
+загрузить, пакет остается в графе без зависимостей, а ошибка выводится в
+разделе `Could not load`. Скачанные файлы запоминаются, чтобы не скачивать
+один POM дважды.
+
+Вывод:
+
+```
+Dependency graph of A:
+  A -> B, C            пакет и его зависимости
+  B -> D
+  D -> (none)          зависимостей нет
+  C -> D
+Skipped by filter ...  пакеты, пропущенные фильтром
+Cyclic dependencies:   найденные циклы
+Could not load:        пакеты, которые не удалось загрузить
+Packages: 4, dependencies: 4
+```
+
+Пакеты выводятся в порядке обхода в глубину.
+
 ## Тестовый репозиторий
 
 В режиме `test` вместо Maven используется текстовый файл, где пакеты
@@ -128,6 +184,18 @@ D:
 
 Здесь A зависит от B и C, B и C зависят от D, у D зависимостей нет.
 Пустые строки и строки, начинающиеся с `#`, пропускаются.
+
+Готовые тестовые репозитории в папке `repos`:
+
+- `basic.txt` - "ромб": A -> B, C; B, C -> D;
+- `cycle.txt` - цикл A -> B -> C -> A;
+- `complex.txt` - несколько циклов (B -> E -> B, E -> H -> I -> C -> E),
+  пакет, зависящий от самого себя (F -> F), и длинные цепочки.
+
+Конфигурации для них: `configs/test_basic.json`, `configs/test_mode.json`
+(ромб с фильтром `D`), `configs/test_cycle.json`,
+`configs/test_complex.json` и `configs/test_complex_filter.json`
+(фильтр `E` разрывает два цикла).
 
 ## Обработка ошибок
 
@@ -217,14 +285,36 @@ Error: invalid configuration in 'configs\errors\wrong_remote.json':
   пакета.
 - `RepoFileError` - ошибка тестового репозитория.
 
+Класс `MavenSource(repository, package_name, version)` - источник данных
+для построения графа. Метод `dependencies(name)` возвращает зависимости,
+которые идут дальше по графу (`is_transitive`), и запоминает их версии,
+метод `label(name)` возвращает имя с версией.
+
+Класс `RepoFileSource(path)` в `src/repo_file.py` - такой же источник для
+тестового репозитория.
+
+### src/graph.py
+
+- `build_graph(source, root, filter_substring)` - строит граф обходом в
+  глубину на стеке, без рекурсии.
+- `load_children(...)` - получает зависимости пакета из источника,
+  применяет фильтр, ошибки загрузки записывает в `graph.errors`.
+- `is_filtered(name, filter_substring)` - проверка фильтра.
+- `cycle_path(stack, name)` - путь найденного цикла.
+- `DependencyGraph` - результат: `root`, `edges` (пакет -> список
+  зависимостей), `cycles`, `skipped`, `errors`, метод `edge_count()`.
+- `SourceError` - общая ошибка источников (от нее наследуются
+  `MavenError` и `RepoFileError`).
+
 ### src/main.py
 
 - `parse_arguments(argv)` - разбирает параметр `--config`.
 - `print_config_errors(path, error)` - выводит список ошибок конфигурации.
-- `find_direct_dependencies(config)` - выбирает Maven или тестовый
-  репозиторий в зависимости от режима и возвращает зависимости.
-- `package_title(config)` - имя пакета с версией для заголовка.
-- `print_dependencies(title, dependencies)` - выводит список зависимостей.
+- `create_source(config)` - создает источник: `MavenSource` или
+  `RepoFileSource` в зависимости от режима.
+- `print_edges(graph, source)` - выводит граф.
+- `print_details(graph, filter_substring)` - выводит пропущенные пакеты,
+  циклы, ошибки загрузки и итоговые числа.
 - `main(argv)` - точка входа, возвращает код завершения (0 - успех,
   1 - ошибка).
 
@@ -241,6 +331,8 @@ Error: invalid configuration in 'configs\errors\wrong_remote.json':
 - `REQUEST_TIMEOUT = 15` - сколько секунд ждать ответа репозитория;
 - `USER_AGENT` - как программа представляется серверу;
 - `DEFAULT_SCOPE = "compile"` - scope, если он не указан в POM;
+- `TRANSITIVE_SCOPES = ("compile", "runtime")` - какие зависимости идут
+  дальше по графу;
 - `MAX_SUBSTITUTIONS = 10` - сколько раз подряд подставлять `${...}`
   (если одно свойство ссылается на другое).
 
@@ -265,8 +357,10 @@ run.bat --config configs\test_mode.json
 Демонстрация работы (есть `.bat` для Windows и `.sh` для Linux):
 
 ```
-scripts\demo.bat          зависимости spring-core, commons-text, guava
-                          и пакета A из тестового репозитория
+scripts\demo.bat          графы spring-core, commons-text, guava
+                          и guava с фильтром
+scripts\demo_test.bat     графы тестовых репозиториев: ромб, фильтр,
+                          цикл, несколько циклов, фильтр в сложном графе
 scripts\demo_errors.bat   ошибки конфигурации и ошибки получения данных
 ```
 
@@ -278,42 +372,95 @@ python -m unittest discover -s tests -v
 
 Тесты не обращаются к интернету: для проверки работы с Maven они
 запускают локальный HTTP-сервер, который отдает POM-файлы из
-`tests/data/maven`. В этих файлах есть родитель, свойства,
+`tests/data/maven`. На время тестов системный прокси отключается, чтобы
+запросы к `127.0.0.1` не уходили через прокси или VPN. В этих файлах есть родитель, свойства,
 `dependencyManagement`, импорт BOM, зависимости с `test` и `optional`.
 
 Проверяются конфигурация (оба режима, все ошибки), построение адреса
 POM-файла, поиск прямых зависимостей с учетом родителя, свойств и BOM,
 ошибки (нет версии, плохой XML, нет связи), тестовый репозиторий и его
-ошибки, вывод и коды завершения.
+ошибки, построение графа (порядок DFS, ромб, циклы, петля, фильтр,
+ошибки загрузки), граф по репозиторию Maven (только `compile`/`runtime`,
+цикл app -> core -> app), вывод и коды завершения. Отдельный тест строит
+цепочку из 5000 пакетов: рекурсивный обход упал бы на ней с
+`RecursionError`, а обход на стеке работает.
 
 ## Примеры
 
-Тестовый репозиторий:
+"Ромб" - пакет D нужен и B, и C, но обходится один раз:
+
+```
+> python -m src.main --config configs\test_basic.json
+Dependency graph of A:
+  A -> B, C
+  B -> D
+  D -> (none)
+  C -> D
+Packages: 4, dependencies: 4
+```
+
+Фильтр `D`:
 
 ```
 > python -m src.main --config configs\test_mode.json
-Direct dependencies of A:
-  - B
-  - C
-Total: 2
+Dependency graph of A:
+  A -> B, C
+  B -> (none)
+  C -> (none)
+Skipped by filter 'D': D
+Packages: 3, dependencies: 2
 ```
 
-Пакет из Maven Central (вывод зависит от пакета, здесь показан формат):
+Цикл:
 
 ```
-> python -m src.main
-Direct dependencies of org.springframework:spring-core:6.1.5:
-  - groupId:artifactId:version (scope)
-  - groupId:artifactId:version (scope, optional)
-  ...
-Total: N
+> python -m src.main --config configs\test_cycle.json
+Dependency graph of A:
+  A -> B
+  B -> C
+  C -> A, D
+  D -> (none)
+Cyclic dependencies:
+  A -> B -> C -> A
+Packages: 4, dependencies: 4
 ```
 
-Версии нет в репозитории:
+Несколько циклов и петля:
 
 ```
-> python -m src.main --config configs\errors\version_not_found.json
-Error: POM file not found: https://repo1.maven.org/maven2/org/springframework/spring-core/0.0.1/spring-core-0.0.1.pom
+> python -m src.main --config configs\test_complex.json
+Dependency graph of A:
+  A -> B, C
+  B -> D, E
+  D -> G
+  G -> (none)
+  E -> B, H
+  H -> I
+  I -> C
+  C -> E, F
+  F -> F
+Cyclic dependencies:
+  B -> E -> B
+  E -> H -> I -> C -> E
+  F -> F
+Packages: 9, dependencies: 12
+```
+
+Тот же граф с фильтром `E` - два цикла исчезли:
+
+```
+> python -m src.main --config configs\test_complex_filter.json
+Dependency graph of A:
+  A -> B, C
+  B -> D
+  D -> G
+  G -> (none)
+  C -> F
+  F -> F
+Skipped by filter 'E': E
+Cyclic dependencies:
+  F -> F
+Packages: 6, dependencies: 6
 ```
 
 Пакета нет в тестовом репозитории:
@@ -323,14 +470,9 @@ Error: POM file not found: https://repo1.maven.org/maven2/org/springframework/sp
 Error: package 'Z' not found in 'repos/basic.txt'.
 ```
 
-Ошибки в конфигурации:
+Версии нет в репозитории Maven:
 
 ```
-> python -m src.main --config configs\errors\wrong_test.json
-Error: invalid configuration in 'configs\errors\wrong_test.json':
-  - package_name: in test mode must consist of capital Latin letters.
-  - repository: test repository file 'repos/missing.txt' does not exist.
-  - version: must not be empty.
-  - output_image: folder 'images' does not exist.
-  - filter_substring: must be a string.
+> python -m src.main --config configs\errors\version_not_found.json
+Error: POM file not found: https://repo1.maven.org/maven2/org/springframework/spring-core/0.0.1/spring-core-0.0.1.pom
 ```

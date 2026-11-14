@@ -12,6 +12,7 @@ import urllib.request
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
 from src import maven
+from src.graph import build_graph
 
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -145,6 +146,41 @@ class TestErrors(RepositoryTestCase):
             maven.get_direct_dependencies(
                 "http://127.0.0.1:1", "com.example:app", "1.0")
 
+
+class TestMavenGraph(RepositoryTestCase):
+    """Проверяет построение графа по репозиторию Maven."""
+
+    def build(self):
+        """Строит граф для com.example:app версии 1.0."""
+        source = maven.MavenSource(self.repository.url, "com.example:app",
+                                   "1.0")
+        return source, build_graph(source, "com.example:app")
+
+    def test_only_transitive_dependencies(self):
+        """Проверяет, что test и optional зависимости не идут в граф."""
+        _, graph = self.build()
+        children = graph.edges["com.example:app"]
+        self.assertIn("com.example:lib", children)
+        self.assertNotIn("junit:junit", children)
+        self.assertNotIn("com.example:extras", children)
+
+    def test_cycle(self):
+        """Проверяет цикл app -> core -> app."""
+        _, graph = self.build()
+        self.assertIn(["com.example:app", "com.example:core",
+                       "com.example:app"], graph.cycles)
+
+    def test_missing_pom_is_reported(self):
+        """Проверяет, что отсутствующий POM попадает в список ошибок."""
+        _, graph = self.build()
+        self.assertIn("com.example:util", graph.errors)
+
+    def test_labels_with_versions(self):
+        """Проверяет подписи пакетов с версиями."""
+        source, _ = self.build()
+        self.assertEqual(source.label("com.example:lib"),
+                         "com.example:lib:2.0")
+        
 
 if __name__ == "__main__":
     unittest.main()

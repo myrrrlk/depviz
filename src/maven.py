@@ -4,11 +4,14 @@ POM-файлы скачиваются по HTTP и разбираются вру
 сторонних библиотек.
 """
 
+import functools
 import re
 import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ElementTree
 from dataclasses import dataclass, field
+
+from src.graph import SourceError
 
 
 REQUEST_TIMEOUT = 15
@@ -17,10 +20,11 @@ HTTP_NOT_FOUND = 404
 MAX_SUBSTITUTIONS = 10
 DEFAULT_SCOPE = "compile"
 IMPORT_SCOPE = "import"
+TRANSITIVE_SCOPES = ("compile", "runtime")
 PROPERTY_PATTERN = re.compile(r"\$\{([^}]+)\}")
 
 
-class MavenError(Exception):
+class MavenError(SourceError):
     """Ошибка получения или разбора POM-файла."""
 
 
@@ -72,8 +76,12 @@ def pom_url(repository, group_id, artifact_id, version):
                      version, file_name])
 
 
+@functools.lru_cache(maxsize=None)
 def download(url):
-    """Скачивает файл по URL и возвращает его содержимое в байтах."""
+    """Скачивает файл по URL и возвращает его содержимое в байтах.
+
+    Результат запоминается (кэш), чтобы не скачивать один файл дважды.
+    """
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     try:
         with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT) as answer:
@@ -254,3 +262,37 @@ def get_direct_dependencies(repository, package_name, version):
     managed = collect_managed_versions(repository, chain, properties)
     return [make_dependency(entry, properties, managed)
             for entry in collect_dependency_entries(chain)]
+
+
+def is_transitive(dependency):
+    """Проверяет, идёт ли зависимость дальше по графу (как в Maven)."""
+    return dependency.scope in TRANSITIVE_SCOPES and not dependency.optional
+
+
+class MavenSource:
+    """Источник зависимостей для построения графа: репозиторий Maven.
+
+    Пакеты в графе называются groupId:artifactId, а их версии хранятся
+    в словаре versions. Дальше по графу идут только зависимости со scope
+    compile или runtime и без optional, как это делает Maven.
+    """
+
+    def __init__(self, repository, package_name, version):
+        """Запоминает адрес репозитория и версию корневого пакета."""
+        self.repository = repository
+        self.versions = {package_name: version}
+
+    def dependencies(self, name):
+        """Возвращает имена зависимостей пакета, которые идут дальше."""
+        found = get_direct_dependencies(self.repository, name,
+                                        self.versions[name])
+        names = []
+        for dependency in found:
+            if is_transitive(dependency):
+                self.versions.setdefault(dependency.name, dependency.version)
+                names.append(dependency.name)
+        return names
+
+    def label(self, name):
+        """Возвращает подпись пакета: имя и версию."""
+        return f"{name}:{self.versions[name]}"

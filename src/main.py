@@ -5,6 +5,7 @@ import sys
 
 from src import maven, repo_file
 from src.config import MODE_TEST, ConfigError, load_config
+from src.graph import build_graph
 
 
 DEFAULT_CONFIG = "config.json"
@@ -32,53 +33,63 @@ def print_config_errors(path, error):
         print(f"  - {message}")
 
 
-def package_title(config):
-    """Возвращает имя пакета с версией для заголовка вывода."""
+def create_source(config):
+    """Создаёт источник зависимостей в зависимости от режима работы."""
     if config.repository_mode == MODE_TEST:
-        return config.package_name
-    return f"{config.package_name}:{config.version}"
+        return repo_file.RepoFileSource(config.repository)
+    return maven.MavenSource(config.repository, config.package_name,
+                             config.version)
 
 
-def find_direct_dependencies(config):
-    """Возвращает прямые зависимости пакета в виде строк для вывода."""
-    if config.repository_mode == MODE_TEST:
-        return repo_file.get_direct_dependencies(
-            config.repository, config.package_name)
-    dependencies = maven.get_direct_dependencies(
-        config.repository, config.package_name, config.version)
-    return [dependency.describe() for dependency in dependencies]
+def print_edges(graph, source):
+    """Выводит каждый пакет графа и его зависимости."""
+    print(f"Dependency graph of {source.label(graph.root)}:")
+    for name, children in graph.edges.items():
+        targets = ", ".join(source.label(child) for child in children)
+        print(f"  {source.label(name)} -> {targets or '(none)'}")
 
 
-def print_dependencies(title, dependencies):
-    """Выводит список прямых зависимостей пакета."""
-    if not dependencies:
-        print(f"Package {title} has no direct dependencies.")
-        return
-    print(f"Direct dependencies of {title}:")
-    for dependency in dependencies:
-        print(f"  - {dependency}")
-    print(f"Total: {len(dependencies)}")
+def print_details(graph, filter_substring):
+    """Выводит пропущенные пакеты, циклы, ошибки и итоговые числа."""
+    if graph.skipped:
+        print(f"Skipped by filter '{filter_substring}': "
+              f"{', '.join(graph.skipped)}")
+    if graph.cycles:
+        print("Cyclic dependencies:")
+        for cycle in graph.cycles:
+            print(f"  {' -> '.join(cycle)}")
+    if graph.errors:
+        print("Could not load:")
+        for name, message in graph.errors.items():
+            print(f"  {name}: {message}")
+    print(f"Packages: {len(graph.edges)}, "
+          f"dependencies: {graph.edge_count()}")
 
 
 def main(argv=None):
-    """Точка входа: загружает конфигурацию и выводит прямые зависимости.
+    """Точка входа: загружает конфигурацию и строит граф зависимостей.
 
     Возвращает код завершения программы.
     """
     args = parse_arguments(argv)
     try:
         config = load_config(args.config)
+        source = create_source(config)
     except ConfigError as error:
         print_config_errors(args.config, error)
         return EXIT_FAILURE
-
-    try:
-        dependencies = find_direct_dependencies(config)
-    except (maven.MavenError, repo_file.RepoFileError) as error:
+    except repo_file.RepoFileError as error:
         print(f"Error: {error}")
         return EXIT_FAILURE
 
-    print_dependencies(package_title(config), dependencies)
+    graph = build_graph(source, config.package_name,
+                        config.filter_substring)
+    if config.package_name in graph.errors:
+        print(f"Error: {graph.errors[config.package_name]}")
+        return EXIT_FAILURE
+
+    print_edges(graph, source)
+    print_details(graph, config.filter_substring)
     return EXIT_SUCCESS
 
 

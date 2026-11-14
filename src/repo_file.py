@@ -7,13 +7,15 @@
 
 import re
 
+from src.graph import SourceError
+
 
 COMMENT_PREFIX = "#"
 SEPARATOR = ":"
 NAME_PATTERN = re.compile(r"^[A-Z]+$")
 
 
-class RepoFileError(Exception):
+class RepoFileError(SourceError):
     """Ошибка чтения или формата файла тестового репозитория."""
 
 
@@ -66,3 +68,23 @@ def get_direct_dependencies(path, package_name):
         message = f"package '{package_name}' not found in '{path}'."
         raise RepoFileError(message)
     return graph[package_name]
+
+
+class RepoFileSource:
+    """Источник зависимостей для построения графа: тестовый репозиторий."""
+
+    def __init__(self, path):
+        """Читает файл тестового репозитория."""
+        self.path = path
+        self.graph = load_repository(path)
+
+    def dependencies(self, name):
+        """Возвращает прямые зависимости пакета."""
+        if name not in self.graph:
+            message = f"package '{name}' not found in '{self.path}'."
+            raise RepoFileError(message)
+        return self.graph[name]
+
+    def label(self, name):
+        """Возвращает подпись пакета (в тестовом режиме это имя)."""
+        return name

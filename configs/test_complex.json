@@ -1,0 +1,8 @@
+{
+  "package_name": "A",
+  "repository": "repos/complex.txt",
+  "repository_mode": "test",
+  "version": "1.0",
+  "output_image": "graph_test.png",
+  "filter_substring": ""
+}

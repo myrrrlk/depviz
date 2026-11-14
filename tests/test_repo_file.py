@@ -4,9 +4,11 @@ import os
 import tempfile
 import unittest
 
-from src.repo_file import RepoFileError, get_direct_dependencies
-
-
+from src.repo_file import (
+    RepoFileError,
+    RepoFileSource,
+    get_direct_dependencies,
+)
 class RepoFileTestCase(unittest.TestCase):
     """Создаёт временные файлы тестового репозитория."""
 
@@ -75,6 +77,22 @@ class TestErrors(RepoFileTestCase):
         with self.assertRaisesRegex(RepoFileError, "cannot read"):
             get_direct_dependencies("no_such_repo.txt", "A")
 
+
+class TestSource(RepoFileTestCase):
+    """Проверяет источник данных для построения графа."""
+
+    def test_dependencies(self):
+        """Проверяет зависимости и подпись пакета."""
+        source = RepoFileSource(self.make_repo("A: B\nB:\n"))
+        self.assertEqual(source.dependencies("A"), ["B"])
+        self.assertEqual(source.label("A"), "A")
+
+    def test_unknown_package(self):
+        """Проверяет пакет, которого нет в файле."""
+        source = RepoFileSource(self.make_repo("A: B\n"))
+        with self.assertRaisesRegex(RepoFileError, "not found"):
+            source.dependencies("B")
+            
 
 if __name__ == "__main__":
     unittest.main()

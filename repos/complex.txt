@@ -1,0 +1,10 @@
+# Several cycles, a self-dependency and long chains.
+A: B C
+B: D E
+C: E F
+D: G
+E: B H
+F: F
+G:
+H: I
+I: C

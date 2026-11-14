@@ -1,5 +1,5 @@
 #!/bin/sh
-# Shows direct dependencies of several packages (Linux / macOS).
+# Builds dependency graphs of real Maven packages (Linux / macOS).
 cd "$(dirname "$0")/.." || exit 1
 
 echo "=== spring-core 6.1.5 (config.json) ==="
@@ -17,6 +17,6 @@ python3 -m src.main --config configs/guava.json
 echo "Exit code: $?"
 
 echo
-echo "=== Test repository, package A ==="
-python3 -m src.main --config configs/test_mode.json
+echo "=== guava 33.0.0-jre, filter 'annotations' ==="
+python3 -m src.main --config configs/guava_filter.json
 echo "Exit code: $?"

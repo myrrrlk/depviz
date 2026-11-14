@@ -1,5 +1,5 @@
 @echo off
-rem Shows direct dependencies of several packages (Windows).
+rem Builds dependency graphs of real Maven packages (Windows).
 pushd "%~dp0.."
 
 echo === spring-core 6.1.5 (config.json) ===
@@ -17,7 +17,7 @@ python -m src.main --config configs\guava.json
 echo Exit code: %ERRORLEVEL%
 
 echo.
-echo === Test repository, package A ===
-python -m src.main --config configs\test_mode.json
+echo === guava 33.0.0-jre, filter 'annotations' ===
+python -m src.main --config configs\guava_filter.json
 echo Exit code: %ERRORLEVEL%
 popd

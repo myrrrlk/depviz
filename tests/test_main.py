@@ -11,7 +11,6 @@ from contextlib import redirect_stdout
 from src.main import EXIT_FAILURE, EXIT_SUCCESS, main, parse_arguments
 
 
-
 def setUpModule():
     """Отключает системный прокси: тесты обращаются к 127.0.0.1."""
     no_proxy = urllib.request.ProxyHandler({})
@@ -21,6 +20,8 @@ def setUpModule():
 def tearDownModule():
     """Возвращает обычные настройки urllib после тестов."""
     urllib.request.install_opener(None)
+
+
 def run_main(argv):
     """Запускает main и возвращает код завершения и вывод."""
     output = io.StringIO()
@@ -43,15 +44,35 @@ class TestArguments(unittest.TestCase):
 
 
 class TestMain(unittest.TestCase):
-    """Проверяет вывод зависимостей и коды завершения."""
+    """Проверяет вывод графа и коды завершения."""
 
-    def test_test_mode_output(self):
-        """Проверяет вывод прямых зависимостей в тестовом режиме."""
+    def test_graph_output(self):
+        """Проверяет вывод графа в тестовом режиме."""
+        code, output = run_main(["-c", "configs/test_basic.json"])
+        self.assertEqual(code, EXIT_SUCCESS)
+        self.assertIn("Dependency graph of A:", output)
+        self.assertIn("  A -> B, C", output)
+        self.assertIn("  D -> (none)", output)
+        self.assertIn("Packages: 4, dependencies: 4", output)
+
+    def test_filter_output(self):
+        """Проверяет вывод пропущенных фильтром пакетов."""
         code, output = run_main(["-c", "configs/test_mode.json"])
         self.assertEqual(code, EXIT_SUCCESS)
-        self.assertIn("Direct dependencies of A:", output)
-        self.assertIn("  - B", output)
-        self.assertIn("Total: 2", output)
+        self.assertIn("Skipped by filter 'D': D", output)
+
+    def test_cycle_output(self):
+        """Проверяет вывод циклических зависимостей."""
+        code, output = run_main(["-c", "configs/test_cycle.json"])
+        self.assertEqual(code, EXIT_SUCCESS)
+        self.assertIn("  A -> B -> C -> A", output)
+
+    def test_unknown_root(self):
+        """Проверяет пакет, которого нет в тестовом репозитории."""
+        path = "configs/errors/unknown_test_package.json"
+        code, output = run_main(["-c", path])
+        self.assertEqual(code, EXIT_FAILURE)
+        self.assertIn("Error: package 'Z' not found", output)
 
     def test_invalid_config(self):
         """Проверяет вывод ошибок конфигурации и код завершения."""
