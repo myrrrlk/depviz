@@ -8,7 +8,7 @@ import functools
 import re
 import urllib.error
 import urllib.request
-import xml.etree.ElementTree as elementTree
+import xml.etree.ElementTree as element_tree
 from dataclasses import dataclass, field
 
 from src.graph import SourceError
@@ -133,8 +133,8 @@ def read_parent(root):
 def parse_pom(data):
     """Разбирает POM-файл и возвращает объект Pom."""
     try:
-        root = elementTree.fromstring(data)
-    except elementTree.ParseError as error:
+        root = element_tree.fromstring(data)
+    except element_tree.ParseError as error:
         raise MavenError(f"invalid POM file: {error}") from error
     strip_namespaces(root)
 
