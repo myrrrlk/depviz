@@ -8,7 +8,7 @@ import functools
 import re
 import urllib.error
 import urllib.request
-import xml.etree.ElementTree as element_tree
+import xml.etree.elementtree as element_tree
 from dataclasses import dataclass, field
 
 from src.graph import SourceError

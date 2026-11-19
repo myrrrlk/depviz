@@ -13,13 +13,13 @@ from src import visualize
 from src.main import EXIT_FAILURE, EXIT_SUCCESS, main, parse_arguments
 
 
-def setUpModule():
+def setupmodule(): #noqa: N802
     """Отключает системный прокси: тесты обращаются к 127.0.0.1."""
     no_proxy = urllib.request.ProxyHandler({})
     urllib.request.install_opener(urllib.request.build_opener(no_proxy))
 
 
-def tearDownModule():
+def teardownmodule(): #noqa: N802
     """Возвращает обычные настройки urllib после тестов."""
     urllib.request.install_opener(None)
 
