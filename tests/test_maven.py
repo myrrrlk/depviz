@@ -20,13 +20,13 @@ DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
 
 
 
-def setUpModule():
+def setUpModule(): #noqa: N802
     """Отключает системный прокси: тесты обращаются к 127.0.0.1."""
     no_proxy = urllib.request.ProxyHandler({})
     urllib.request.install_opener(urllib.request.build_opener(no_proxy))
 
 
-def tearDownModule():
+def tearDownModule(): #noqa: N802
     """Возвращает обычные настройки urllib после тестов."""
     urllib.request.install_opener(None)
 
